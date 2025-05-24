@@ -32,7 +32,8 @@ connectToMongo(); // Connect when the server starts
 // --- API Endpoint to receive data for Excel updates ---
 app.post('/api/updateExcel', async (req, res) => {
     const { sheetName, row, col, newValue } = req.body;
-    console.log(`Received update for: Sheet=<span class="math-inline">\{sheetName\}, Row\=</span>{row}, Col=<span class="math-inline">\{col\}, NewValue\=</span>{newValue}`);
+    // Removed the math-inline spans as they appear to be artifact from copying
+    console.log(`Received update for: Sheet=${sheetName}, Row=${row}, Col=${col}, NewValue=${newValue}`);
 
     try {
         // Select your database and collection (like a table in SQL)
@@ -41,15 +42,21 @@ app.post('/api/updateExcel', async (req, res) => {
 
         // Create a unique identifier for each cell (like a composite primary key in SQL)
         const filter = { sheetName: sheetName, row: row, col: col };
+        
         // Define the update operation: set the newValue
+        // Use $set for the value that changes, and $setOnInsert for fields that define the unique key
+        // This ensures existing documents are modified, and new ones are created correctly
         const updateDoc = {
             $set: {
-                sheetName: sheetName, // Store these for clarity, even if in filter
-                row: row,
-                col: col,
                 cellValue: newValue // The actual cell value
             },
+            $setOnInsert: { // These fields will only be set if a new document is inserted (upsert: true)
+                sheetName: sheetName,
+                row: row,
+                col: col
+            }
         };
+        
         // Options: upsert: true means insert if no matching document found, otherwise update
         const options = { upsert: true };
 
