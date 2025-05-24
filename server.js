@@ -29,35 +29,27 @@ async function connectToMongo() {
 }
 connectToMongo(); // Connect when the server starts
 
-// --- API Endpoint to receive data for Excel updates ---
+// --- API Endpoint to receive data for Excel updates (POST) ---
 app.post('/api/updateExcel', async (req, res) => {
     const { sheetName, row, col, newValue } = req.body;
-    // Removed the math-inline spans as they appear to be artifact from copying
     console.log(`Received update for: Sheet=${sheetName}, Row=${row}, Col=${col}, NewValue=${newValue}`);
 
     try {
-        // Select your database and collection (like a table in SQL)
-        const database = client.db("accounting_data_db"); // Choose a name for your database
-        const collection = database.collection("excel_cells"); // Choose a name for your collection
+        const database = client.db("accounting_data_db");
+        const collection = database.collection("excel_cells");
 
-        // Create a unique identifier for each cell (like a composite primary key in SQL)
         const filter = { sheetName: sheetName, row: row, col: col };
         
-        // Define the update operation: set the newValue
-        // Use $set for the value that changes, and $setOnInsert for fields that define the unique key
-        // This ensures existing documents are modified, and new ones are created correctly
         const updateDoc = {
             $set: {
-                cellValue: newValue // The actual cell value
+                cellValue: newValue
             },
-            $setOnInsert: { // These fields will only be set if a new document is inserted (upsert: true)
+            $setOnInsert: {
                 sheetName: sheetName,
                 row: row,
                 col: col
             }
         };
-        
-        // Options: upsert: true means insert if no matching document found, otherwise update
         const options = { upsert: true };
 
         const result = await collection.updateOne(filter, updateDoc, options);
@@ -65,7 +57,9 @@ app.post('/api/updateExcel', async (req, res) => {
         console.log('MongoDB operation successful:', result);
         res.json({
             message: 'Data saved successfully!',
-            data: { sheetName, row, col, newValue }
+            data: { sheetName, row, col, newValue },
+            modifiedCount: result.modifiedCount, // Include these in response for debugging
+            upsertedCount: result.upsertedCount
         });
 
     } catch (error) {
@@ -76,6 +70,28 @@ app.post('/api/updateExcel', async (req, res) => {
         });
     }
 });
+
+// --- NEW API Endpoint to retrieve all saved Excel data (GET) ---
+app.get('/api/getExcelData', async (req, res) => {
+    try {
+        const database = client.db("accounting_data_db");
+        const collection = database.collection("excel_cells");
+
+        // Fetch all documents from the collection
+        const savedData = await collection.find({}).toArray();
+
+        // Send the fetched data as a JSON response
+        res.json(savedData);
+
+    } catch (error) {
+        console.error('Error retrieving data from MongoDB:', error);
+        res.status(500).json({
+            message: 'Failed to retrieve data from database',
+            error: error.message
+        });
+    }
+});
+
 
 // --- Optional: A simple GET route to check if the server is running ---
 app.get('/', (req, res) => {
