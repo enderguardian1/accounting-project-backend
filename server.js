@@ -1,39 +1,73 @@
 // server.js
+require('dotenv').config(); // Load environment variables from .env file
+
 const express = require('express');
-const cors = require('cors'); // Import the cors package
+const cors = require('cors');
+const { MongoClient } = require('mongodb'); // Import MongoClient from 'mongodb'
 const app = express();
-const port = process.env.PORT || 3000; // Use environment variable PORT or default to 3000
+const port = process.env.PORT || 3000; // Use Render's PORT env var or default to 3000
 
 // Middleware to enable CORS for all origins (for development)
-// For production, you'll want to restrict this to your GitHub Pages domain
+// IMPORTANT: In production, change '*' to your GitHub Pages URL
 app.use(cors());
 
 // Middleware to parse JSON bodies from incoming requests
 app.use(express.json());
 
+// --- MongoDB Connection ---
+const uri = process.env.MONGODB_URI; // Your MongoDB connection string
+const client = new MongoClient(uri);
+
+async function connectToMongo() {
+    try {
+        await client.connect();
+        console.log("Successfully connected to MongoDB Atlas!");
+    } catch (error) {
+        console.error("Failed to connect to MongoDB Atlas:", error);
+        // In a real app, you might want to exit the process or retry
+    }
+}
+connectToMongo(); // Connect when the server starts
+
 // --- API Endpoint to receive data for Excel updates ---
-// This will be the endpoint your frontend sends data to
-app.post('/api/updateExcel', (req, res) => {
-    const receivedData = req.body; // The data sent from your frontend
+app.post('/api/updateExcel', async (req, res) => {
+    const { sheetName, row, col, newValue } = req.body;
+    console.log(`Received update for: Sheet=<span class="math-inline">\{sheetName\}, Row\=</span>{row}, Col=<span class="math-inline">\{col\}, NewValue\=</span>{newValue}`);
 
-    console.log('Received data for Excel update:', receivedData);
+    try {
+        // Select your database and collection (like a table in SQL)
+        const database = client.db("accounting_data_db"); // Choose a name for your database
+        const collection = database.collection("excel_cells"); // Choose a name for your collection
 
-    // --- IMPORTANT: This is where you will add your MySQL logic later ---
-    // For now, we'll just simulate a successful save.
-    // In the next steps, you'll replace this with actual MySQL INSERT/UPDATE operations.
-    // Example:
-    // try {
-    //     // const connection = await mysql.createConnection(...);
-    //     // await connection.execute('INSERT INTO your_table (col1, col2) VALUES (?, ?)', [receivedData.value1, receivedData.value2]);
-    //     // await connection.end();
-    //     res.json({ message: 'Data received and simulated as saved!', data: receivedData });
-    // } catch (error) {
-    //     console.error('Error saving to database:', error);
-    //     res.status(500).json({ message: 'Failed to save data', error: error.message });
-    // }
-    // ------------------------------------------------------------------
+        // Create a unique identifier for each cell (like a composite primary key in SQL)
+        const filter = { sheetName: sheetName, row: row, col: col };
+        // Define the update operation: set the newValue
+        const updateDoc = {
+            $set: {
+                sheetName: sheetName, // Store these for clarity, even if in filter
+                row: row,
+                col: col,
+                cellValue: newValue // The actual cell value
+            },
+        };
+        // Options: upsert: true means insert if no matching document found, otherwise update
+        const options = { upsert: true };
 
-    res.json({ message: 'Data received and simulated as saved!', data: receivedData });
+        const result = await collection.updateOne(filter, updateDoc, options);
+
+        console.log('MongoDB operation successful:', result);
+        res.json({
+            message: 'Data saved successfully!',
+            data: { sheetName, row, col, newValue }
+        });
+
+    } catch (error) {
+        console.error('Error saving data to MongoDB:', error);
+        res.status(500).json({
+            message: 'Failed to save data to database',
+            error: error.message
+        });
+    }
 });
 
 // --- Optional: A simple GET route to check if the server is running ---
