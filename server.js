@@ -29,46 +29,67 @@ async function connectToMongo() {
 }
 connectToMongo(); // Connect when the server starts
 
-// --- API Endpoint to receive data for Excel updates ---
+// --- API Endpoint to receive data for Excel updates (POST) ---
 app.post('/api/updateExcel', async (req, res) => {
-    const { sheetName, row, col, newValue } = req.body;
-    console.log(`Received update for: Sheet=<span class="math-inline">\{sheetName\}, Row\=</span>{row}, Col=<span class="math-inline">\{col\}, NewValue\=</span>{newValue}`);
-
     try {
-        // Select your database and collection (like a table in SQL)
-        const database = client.db("accounting_data_db"); // Choose a name for your database
-        const collection = database.collection("excel_cells"); // Choose a name for your collection
+        const updates = req.body;
+        // *** ADD THIS LOG ***
+        console.log('Backend: Received updates (from frontend):', updates); 
 
-        // Create a unique identifier for each cell (like a composite primary key in SQL)
-        const filter = { sheetName: sheetName, row: row, col: col };
-        // Define the update operation: set the newValue
-        const updateDoc = {
-            $set: {
-                sheetName: sheetName, // Store these for clarity, even if in filter
-                row: row,
-                col: col,
-                cellValue: newValue // The actual cell value
-            },
-        };
-        // Options: upsert: true means insert if no matching document found, otherwise update
-        const options = { upsert: true };
+        const updateResults = [];
+        for (const update of updates) {
+            // *** ADD THIS LOG ***
+            console.log('Backend: Processing individual update:', update); 
 
-        const result = await collection.updateOne(filter, updateDoc, options);
+            // Validate incoming data (keep this validation)
+            if (update.sheetName === undefined || update.row === undefined || update.col === undefined || update.cellValue === undefined) {
+                console.warn('Backend: Skipping invalid update due to missing fields:', update);
+                continue; 
+            }
 
-        console.log('MongoDB operation successful:', result);
-        res.json({
-            message: 'Data saved successfully!',
-            data: { sheetName, row, col, newValue }
-        });
+            const query = {
+                sheetName: update.sheetName.trim(), 
+                row: update.row,
+                col: update.col
+            };
+            const options = { upsert: true };
+            const updateDoc = {
+                $set: {
+                    cellValue: update.cellValue 
+                }
+            };
+
+            const result = await excelCellsCollection.updateOne(query, updateDoc, options);
+            updateResults.push(result);
+        }
+        res.status(200).json({ message: 'Update successful', data: {}, modifiedCount: updateResults.reduce((acc, r) => acc + r.modifiedCount, 0), upsertedCount: updateResults.reduce((acc, r) => acc + r.upsertedCount, 0) });
+    } catch (error) {
+        console.error('Backend: Error updating Excel data:', error);
+        res.status(500).json({ message: 'Internal server error', error: error.message });
+    }
+});
+
+// --- NEW API Endpoint to retrieve all saved Excel data (GET) ---
+app.get('/api/getExcelData', async (req, res) => {
+    try {
+        const database = client.db("accounting_data_db");
+        const collection = database.collection("excel_cells");
+
+        // Fetch all documents from the collection
+        const savedData = await collection.find({}).toArray();
+
+        // Send the fetched data as a JSON response
+        res.json(savedData);
 
     } catch (error) {
-        console.error('Error saving data to MongoDB:', error);
+        console.error('Error retrieving data from MongoDB:', error);
         res.status(500).json({
-            message: 'Failed to save data to database',
+            message: 'Failed to retrieve data from database',
             error: error.message
         });
     }
 });
+
 
 // --- Optional: A simple GET route to check if the server is running ---
 app.get('/', (req, res) => {
