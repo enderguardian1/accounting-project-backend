@@ -33,36 +33,53 @@ connectToMongo(); // Connect when the server starts
 app.post('/api/updateExcel', async (req, res) => {
     try {
         const updates = req.body;
-        // *** ADD THIS LOG ***
         console.log('Backend: Received updates (from frontend):', updates); 
+
+        const database = client.db("accounting_data_db");
+        const collection = database.collection("excel_cells");
 
         const updateResults = [];
         for (const update of updates) {
-            // *** ADD THIS LOG ***
             console.log('Backend: Processing individual update:', update); 
 
-            // Validate incoming data (keep this validation)
+            // Validate incoming data
             if (update.sheetName === undefined || update.row === undefined || update.col === undefined || update.cellValue === undefined) {
                 console.warn('Backend: Skipping invalid update due to missing fields:', update);
                 continue; 
             }
 
             const query = {
-                sheetName: update.sheetName.trim(), 
+                sheetName: update.sheetName.trim(), // Trim sheetName for consistent querying
                 row: update.row,
                 col: update.col
             };
             const options = { upsert: true };
             const updateDoc = {
                 $set: {
-                    cellValue: update.cellValue 
+                    cellValue: update.cellValue // Set the new cell value
+                },
+                // CRITICAL FIX: Use $setOnInsert to set these fields ONLY when a new document is inserted
+                $setOnInsert: {
+                    sheetName: update.sheetName.trim(), // Ensure trimmed sheetName is stored
+                    row: update.row,
+                    col: update.col
                 }
             };
 
-            const result = await excelCellsCollection.updateOne(query, updateDoc, options);
+            const result = await collection.updateOne(query, updateDoc, options);
             updateResults.push(result);
         }
-        res.status(200).json({ message: 'Update successful', data: {}, modifiedCount: updateResults.reduce((acc, r) => acc + r.modifiedCount, 0), upsertedCount: updateResults.reduce((acc, r) => acc + r.upsertedCount, 0) });
+        
+        // Aggregate modified and upserted counts from all updates
+        const totalModifiedCount = updateResults.reduce((acc, r) => acc + r.modifiedCount, 0);
+        const totalUpsertedCount = updateResults.reduce((acc, r) => acc + r.upsertedCount, 0);
+
+        res.status(200).json({ 
+            message: 'Update successful', 
+            data: {}, // You might want to return the updated data here if needed
+            modifiedCount: totalModifiedCount, 
+            upsertedCount: totalUpsertedCount 
+        });
     } catch (error) {
         console.error('Backend: Error updating Excel data:', error);
         res.status(500).json({ message: 'Internal server error', error: error.message });
@@ -89,7 +106,6 @@ app.get('/api/getExcelData', async (req, res) => {
         });
     }
 });
-
 
 // --- Optional: A simple GET route to check if the server is running ---
 app.get('/', (req, res) => {
